@@ -1,0 +1,26 @@
+{
+	"width" : 10,
+	"height" : 15,
+	"room_texture" : "room_texture.png",
+	"pattern" : [
+		["wall",  "wall",  "door",  "wall",  "wall",  "wall",  "wall",  "door",  "wall", "wall"],
+		["wall", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "wall"],
+		["wall", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "wall"],
+		["wall", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "wall"],
+		["wall", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "door"],
+		["door", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "wall"],
+		["wall", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "wall"],
+		["wall", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "wall"],
+		["wall", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "wall"],
+		["door", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "wall"],
+		["wall", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "door"],
+		["wall", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "wall"],
+		["wall", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "wall"],
+		["wall", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "epmty", "wall"],
+		["wall",  "wall",  "wall",  "wall",  "door",  "wall",  "wall",  "wall",  "wall", "wall"]
+	],
+	"spawn_chance" : 10,
+	"room_specialization" : [
+		"standard", "on_next_flout", "shop"
+	]
+}

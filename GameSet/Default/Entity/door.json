@@ -1,0 +1,9 @@
+{
+	"hp": endless,
+	"drop": null,
+	"animation_count": 1,
+	"on wall" : true,
+	"animation": "door.png",
+	"on_death": null,
+	"on_collision": ["swap_room"]
+}

@@ -1,0 +1,19 @@
+{
+	"hp": 1,
+	"immune": [
+		"normal",
+		"fire",
+		"ice",
+		"electric"
+	],
+	"drop": [
+		{"item": "coin", "chance": 0.1},
+		{"item": "key", "chance": 0.1},
+		{"item": "bomb", "chance": 0.1},
+		{"item": "cursed_stone", "chance": 0.01}
+	],
+	"animation_count": 1,
+	"animation": "rock.png",
+	"on_death": null,
+	"on_collision": null
+}
