@@ -1,4 +1,8 @@
+#ifdef WIN32
 #include <SFML/graphics.hpp>
+#else 
+#include <SFML/Graphics.hpp>
+#endif
 #include <UseFull/Math/Vector.hpp>
 #include <UseFull/SFMLUp/EventHandler.hpp>
 #include <UseFull/Utils/Bytes.hpp>
@@ -59,7 +63,8 @@ struct GlobalStruct {
 	}
 	
 	void createWindow(size_t mode) {
-		window.create(sf::VideoMode(1024, 768), window_name, mode);
+		window.create(sf::VideoMode(768, 576), window_name, mode);
+		//window.create(sf::VideoMode(1024, 768), window_name, mode);
 		window.setFramerateLimit(limit_fps);
 	}
 	
@@ -225,10 +230,10 @@ struct Player : public GameObject {
 			exit(1);
 		}
 		
-		if (input->movement[0] == 1) speed[1] -= max_speed / 2;//W
-		if (input->movement[1] == 1) speed[0] -= max_speed / 2;//A
-		if (input->movement[2] == 1) speed[1] += max_speed / 2;//S
-		if (input->movement[3] == 1) speed[0] += max_speed / 2;//D
+		if (input->movement[0] == 1) speed[1] -= max_speed / 8;//W
+		if (input->movement[1] == 1) speed[0] -= max_speed / 8;//A
+		if (input->movement[2] == 1) speed[1] += max_speed / 8;//S
+		if (input->movement[3] == 1) speed[0] += max_speed / 8;//D
 		
 		speed *= 0.9;
 		speed.truncateTo(max_speed);	
