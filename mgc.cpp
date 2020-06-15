@@ -4,18 +4,91 @@
 #include <SFML/Graphics.hpp>
 #endif
 #include <UseFull/Math/Vector.hpp>
+#include <UseFull/Math/Intersect.hpp>
 #include <UseFull/SFMLUp/EventHandler.hpp>
 #include <UseFull/Utils/Bytes.hpp>
 #include <UseFull/Utils/Macro.hpp>
 #include <UseFull/Templates/Array.hpp>
 
+#define EPS 0.001
+
+bool checkIntersection2Rectangles(
+	const math::Vector<2> & a0,
+	const math::Vector<2> & a1,
+	const math::Vector<2> & b0,
+	const math::Vector<2> & b1) {
+	bool fline13 = ( (a0[0] < b1[0] + EPS) && (a0[0] + EPS > b0[0] || a1[0] + EPS > b1[0]) ) || ( (b0[0] < a1[0] + EPS) && (a0[0] < b0[0] + EPS || a1[0] < b1[0] + EPS) );
+	bool fline24 = ( (a0[1] < b1[1] + EPS) && (a0[1] + EPS > b0[1] || a1[1] + EPS > b1[1]) ) || ( (b0[1] < a1[1] + EPS) && (a0[1] < b0[1] + EPS || a1[1] < b1[1] + EPS) );
+	return fline24 && fline13;
+}
+/*
+utils::Ok<math::Vector<2>> smoothCollision(const math::Line<2> & delta, const math::Line<2> & line) {
+	using namespace math;
+	using namespace utils;
+	const double virtual_distance = 0.01;
+	Vector<2> projection_real = projectionPointOnEquationLine<2>(delta.a, line).ok("smoothCollision::projection1: Fatal Error\n");
+	EquationLine<2> el(projection_real, delta.a);
+	Line<2> virtual_line = (line + el.vector * virtual_distance).lengthenBy(virtual_distance, LengthenWay::Equally);
+	Line<2> real_ex_line = Line<2>(line).lengthenBy(virtual_distance, LengthenWay::Equally);
+	bool intersect = 
+		checkIntersectLineWithLine2D(delta, virtual_line) ||
+		checkIntersectLineWithLine2D(delta, Line<2>(virtual_line.b, real_ex_line.b)) ||
+		checkIntersectLineWithLine2D(delta, real_ex_line) ||
+		checkIntersectLineWithLine2D(delta, Line<2>(real_ex_line.a, virtual_line.a));
+	if (intersect) return projectionPointOnEquationLine<2>(delta.b, virtual_line).ok("smoothCollision::projection2: Fatal Error\n");
+	else return {};
+}
+*/
+
+
 struct GameLoopContext;
+struct GameObject;
+
+struct CollisionEventStruct {
+	GameObject * object = nullptr;
+	math::Vector<2> collision_point = {0, 0};
+	math::Line<2> collision_line = math::Line<2>({0, 0}, {0, 0});
+	enum class Direction {
+		Up, 
+		Left, 
+		Down, 
+		Right
+	} relative_to_object_collision_direction;
+	math::Vector<2> getDirVec() {
+		switch(relative_to_object_collision_direction) {
+			case Direction::Up:    return {0 , 1};
+			case Direction::Left:  return {-1, 0};
+			case Direction::Down:  return {0 ,-1};
+			case Direction::Right: return {1 , 0};
+		}
+		printf("CollisionEventStruct::getDirVec::Error FATAL\n");
+		exit(1);
+	}
+	static Direction getDirectionFromIndex(size_t i) {
+		switch (i) {
+			case 0: return Direction::Up;
+			case 1: return Direction::Left;
+			case 2: return Direction::Down;
+			case 3: return Direction::Right;
+			default:
+				printf("CollisionEventStruct::getDirectionFromIndex::Error: Illegal Index = %llu\n", i);
+				exit(1);
+		}
+	}
+	CollisionEventStruct(GameObject * o, const math::Vector<2> & v, const math::Line<2> & l, Direction dir) {
+		object = o; 
+		collision_point = v;
+		collision_line = l;
+		relative_to_object_collision_direction = dir;
+	}
+};
 
 struct GameObject {
 	math::Vector<2> position;
 	math::Vector<2> speed;
 	math::Vector<2> delta;
 	math::Vector<2> collision_size;
+	uft::Array<GameObject *> ignored = uft::Array<GameObject *>(8);
 	
 	bool deleteFlag = false;
 	
@@ -24,20 +97,16 @@ struct GameObject {
 	virtual void updateMove() = 0;
 	virtual void draw() = 0;
 	
+	GameObject() {
+		ignored.addCopy(this);
+	}
+	
 	virtual ~GameObject() {}
+	
+	void checkCollisions(
+		uft::Array<GameObject *> & array,
+		utils::CoLambda<void, CollisionEventStruct *> auto onCollision);
 };
-
-bool checkIntersection2Rectangles(
-	const math::Vector<2> & a0,
-	const math::Vector<2> & a1,
-	const math::Vector<2> & b0,
-	const math::Vector<2> & b1) {
-#define EPS 0.001
-	bool fline13 = ( (a0[0] < b1[0] + EPS) && (a0[0] + EPS > b0[0] || a1[0] + EPS > b1[0]) ) || ( (b0[0] < a1[0] + EPS) && (a0[0] < b0[0] + EPS || a1[0] < b1[0] + EPS) );
-	bool fline24 = ( (a0[1] < b1[1] + EPS) && (a0[1] + EPS > b0[1] || a1[1] + EPS > b1[1]) ) || ( (b0[1] < a1[1] + EPS) && (a0[1] < b0[1] + EPS || a1[1] < b1[1] + EPS) );
-#undef EPS
-	return fline24 && fline13;
-}
 
 namespace drawer {
 	sf::Vertex vertexes[2];
@@ -92,57 +161,170 @@ struct GlobalStruct {
 		game_objects.foreach([](GameObject ** go){(*go)->draw();});
 	}
 	
-	void drawLine(const math::Vector<2> & p1, const math::Vector<2> & p2) {
-		drawer::vertexes[0] = sf::Vertex(sf::Vector2f(p1[0], p1[1]), sf::Color::White);
-		drawer::vertexes[1] = sf::Vertex(sf::Vector2f(p2[0], p2[1]), sf::Color::White);
+	void drawLine(const math::Vector<2> & p1, const math::Vector<2> & p2, sf::Color color = sf::Color::White) {
+		drawer::vertexes[0] = sf::Vertex(sf::Vector2f(p1[0], p1[1]), color);
+		drawer::vertexes[1] = sf::Vertex(sf::Vector2f(p2[0], p2[1]), color);
 		window.draw(drawer::vertexes, 2, sf::Lines);
 	}
 	
-	void drawRectangle(const math::Vector<2> & left_up, const math::Vector<2> & right_down) {
-		drawLine(left_up, {left_up[0], right_down[1]});
-		drawLine({left_up[0], right_down[1]}, right_down);
-		drawLine(right_down, {right_down[0], left_up[1]});
-		drawLine({right_down[0], left_up[1]}, left_up);
+	void drawRectangle(const math::Vector<2> & left_up, const math::Vector<2> & right_down, sf::Color color = sf::Color::White) {
+		drawLine(left_up, {left_up[0], right_down[1]}, color);
+		drawLine({left_up[0], right_down[1]}, right_down, color);
+		drawLine(right_down, {right_down[0], left_up[1]}, color);
+		drawLine({right_down[0], left_up[1]}, left_up, color);
+	}
+	
+	void drawCircle(math::Sphere<2> circle, sf::Color color) {
+		sf::CircleShape circle_shape;
+		circle_shape.setRadius(circle.r);
+		circle_shape.setPosition(circle.center[0] - circle.r, circle.center[1] - circle.r);
+		circle_shape.setFillColor(color);
+		window.draw(circle_shape);
 	}
 	
 	size_t gameLoop(GameLoopContext & context);
 } Global;
+
+void GameObject::checkCollisions(
+	uft::Array<GameObject *> & array,
+	utils::CoLambda<void, CollisionEventStruct *> auto onCollision) {
+		
+	using namespace utils;
+	using namespace math;
+	if (delta.norm() < EPS) return;
+	
+	for (size_t i = 0; i < array._length; i++) {
+		GameObject * obj = array[i];
+		if (ignored.indexByEquation(obj).isOk) continue;
+		
+		Codir<2> c(
+			obj->position + obj->delta - collision_size,
+			obj->position + obj->collision_size + obj->delta
+		);
+		
+		//Global.drawRectangle(c.left_up, c.right_down, sf::Color::Green);
+		
+		Line<2> delta_line(position, position + delta);
+		
+		//Global.drawLine(position, position + delta, sf::Color::Red);
+		
+		//Directions: Up, Left, Down, Right
+		Line<2> lines[4] = {
+			Line<2>(c.left_up, {c.right_down[0], c.left_up[1]}),
+			Line<2>({c.right_down[0], c.left_up[1]}, c.right_down),
+			Line<2>({c.left_up[0], c.right_down[1]}, c.right_down),
+			Line<2>(c.left_up, {c.left_up[0], c.right_down[1]})
+		};
+		/*
+		for (size_t i = 0; i < 4; i++) {
+			Global.drawLine(lines[i].a, lines[i].b, sf::Color::Green);
+		}
+		*/
+		
+		Ok<Vector<2>> oks[4] = {
+			intersectLineWithLine2D(delta_line, lines[0]),
+			intersectLineWithLine2D(delta_line, lines[1]),
+			intersectLineWithLine2D(delta_line, lines[2]),
+			intersectLineWithLine2D(delta_line, lines[3])
+		};
+		
+		Ok<Vector<2>> eoks[4] = {
+			intersectEquationLineWithEquationLine2D(delta_line, lines[0]),
+			intersectEquationLineWithEquationLine2D(delta_line, lines[1]),
+			intersectEquationLineWithEquationLine2D(delta_line, lines[2]),
+			intersectEquationLineWithEquationLine2D(delta_line, lines[3])
+		};
+		
+		/*
+		for (size_t j = 0; j < 4; j++) {
+			if (eoks[j].isOk) {
+				Global.drawCircle(math::Sphere<2>(eoks[j].value, 2), sf::Color(255, 000, 000, 255));
+			}
+		}
+		*/
+		
+		double min_dist = 0;
+		size_t index = 0;
+		bool collision_was = false;
+		
+		size_t j = 0;
+		for (; j < 4; j++) {
+			if (oks[j].isOk) {
+				index = j; 
+				min_dist = position.distanceTo(oks[j].value);
+				collision_was = true;
+				break;
+			}
+		}
+		for (; j < 4; j++) {
+			if (oks[j].isOk) {
+				double dis = position.distanceTo(oks[j].value);
+				if (dis < min_dist) {
+					index = j; 
+					min_dist = position.distanceTo(oks[j].value);
+					//mb need 'break' here
+				}
+			}
+		}
+		
+		if (collision_was) {
+			CollisionEventStruct ces(
+				obj, 
+				oks[index].value, 
+				lines[index], 
+				CollisionEventStruct::getDirectionFromIndex(index)
+			);
+			onCollision(&ces);
+		}
+	}
+}
 
 const char * game_error = nullptr;
 
 using namespace utils;
 
 struct Projectile : public GameObject {
-	uft::Array<GameObject *> ignored_targets = uft::Array<GameObject *>(8);
 	uft::Array<GameObject *> hurt_targets = uft::Array<GameObject *>(4);
-	
+	GameObject * parent = nullptr;
 	virtual void collisionAction(GameObject * go) = 0;
 	virtual void afterCollisionAction() = 0;
 	
-	Projectile() {
-		ignored_targets.addCopy(this);
+	Projectile(GameObject * p) : GameObject() {
+		parent = p;
+		ignored.addCopy(this);
 	}
 	
 	void intersectCheck() {
 		for (size_t i = 0; i < Global.game_objects._length; i++) {
 			GameObject * obj = Global.game_objects[i];
 			
-			Ok<size_t> ok = ignored_targets.indexByCondition([&obj](GameObject ** go1) -> bool{
-				return obj == *go1;
-			});
-			if (ok.isOk) continue;
+			if (ignored.indexByEquation(obj).isOk) continue;
 			
-			if (checkIntersection2Rectangles(
-				position + delta, 
-				position + collision_size + delta,
-				obj->position + obj->delta,
-				obj->position + obj->collision_size + obj->delta
+			if (checkIntersectCodirWithCodir<2>(
+				math::Codir<2>(
+					position + delta, 
+					position + collision_size + delta
+				),
+				math::Codir<2>(
+					obj->position + obj->delta,
+					obj->position + obj->collision_size + obj->delta
+				)
 				)) {
 				hurt_targets.addCopy(this);
 				collisionAction(obj);
 				afterCollisionAction();
 				return;
 			}
+			/*
+			if (checkIntersection2Rectangles(
+				position + delta, 
+				position + collision_size + delta,
+				obj->position + obj->delta,
+				obj->position + obj->collision_size + obj->delta
+				)) {
+				
+			}
+			*/
 		}
 	}
 };
@@ -150,10 +332,17 @@ struct Projectile : public GameObject {
 struct Bullet : public Projectile {
 	size_t active_time = 60;
 	
-	Bullet(GameObject * master) : Projectile() {
+	Bullet(GameObject * parent) : Projectile(parent) {
 		collision_size = {10, 10};
-		position = master->position + (master->collision_size - collision_size) / 2;
-		ignored_targets.addCopy(master);
+		position = parent->position + (parent->collision_size - collision_size) / 2;
+		ignored.addCopy(parent);
+		parent->ignored.addCopy(this);
+	}
+	
+	virtual ~Bullet() {
+		Ok<size_t> index = parent->ignored.indexByEquation(this);
+		if (index.isOk) parent->ignored.remove(index);
+		else printf("-_- Again... Bullet bug!\n");
 	}
 	
 	virtual void updateBase() {
@@ -180,7 +369,7 @@ struct Bullet : public Projectile {
 
 
 struct RandomObject : public GameObject {
-	RandomObject(const math::Vector<2> & vec) {
+	RandomObject(const math::Vector<2> & vec) : GameObject() {
 		position = vec;
 		collision_size = {30, 30};
 	}
@@ -188,7 +377,15 @@ struct RandomObject : public GameObject {
 		speed *= 0.9;
 	}
 	virtual void updateVectors() {
-		delta = speed;
+		delta = speed = {1, 0};
+		checkCollisions(
+			Global.game_objects, 
+			[this](CollisionEventStruct * ces) {
+				math::Vector<2> end_point = 
+					projectionPointOnEquationLine<2>(position + delta, ces->collision_line)
+					.ok("projectionPointOnEquationLine::fail");
+				delta = end_point - position - ces->getDirVec() * EPS;
+		});
 	}
 	virtual void updateMove() {
 		position += delta;
@@ -259,6 +456,14 @@ struct Player : public GameObject {
 	
 	void updateVectors() {
 		delta = speed;
+		checkCollisions(
+			Global.game_objects, 
+			[this](CollisionEventStruct * ces) {
+				math::Vector<2> end_point = 
+					projectionPointOnEquationLine<2>(position + delta, ces->collision_line)
+					.ok("projectionPointOnEquationLine::fail");
+				delta = end_point - position - ces->getDirVec() * EPS;
+		});
 	}
 	
 	void updateMove() {
@@ -301,7 +506,7 @@ size_t GlobalStruct::gameLoop(GameLoopContext & context) {
 
         //Action processor
 
-        stepUpdate();
+        //stepUpdate();
 
         //View processor
 
@@ -310,6 +515,8 @@ size_t GlobalStruct::gameLoop(GameLoopContext & context) {
         //Clear screen
 
         window.clear(sf::Color::Black);
+
+		stepUpdate();
 
         //Draw Processor
 
