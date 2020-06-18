@@ -12,35 +12,6 @@
 
 #define EPS 0.001
 
-bool checkIntersection2Rectangles(
-	const math::Vector<2> & a0,
-	const math::Vector<2> & a1,
-	const math::Vector<2> & b0,
-	const math::Vector<2> & b1) {
-	bool fline13 = ( (a0[0] < b1[0] + EPS) && (a0[0] + EPS > b0[0] || a1[0] + EPS > b1[0]) ) || ( (b0[0] < a1[0] + EPS) && (a0[0] < b0[0] + EPS || a1[0] < b1[0] + EPS) );
-	bool fline24 = ( (a0[1] < b1[1] + EPS) && (a0[1] + EPS > b0[1] || a1[1] + EPS > b1[1]) ) || ( (b0[1] < a1[1] + EPS) && (a0[1] < b0[1] + EPS || a1[1] < b1[1] + EPS) );
-	return fline24 && fline13;
-}
-/*
-utils::Ok<math::Vector<2>> smoothCollision(const math::Line<2> & delta, const math::Line<2> & line) {
-	using namespace math;
-	using namespace utils;
-	const double virtual_distance = 0.01;
-	Vector<2> projection_real = projectionPointOnEquationLine<2>(delta.a, line).ok("smoothCollision::projection1: Fatal Error\n");
-	EquationLine<2> el(projection_real, delta.a);
-	Line<2> virtual_line = (line + el.vector * virtual_distance).lengthenBy(virtual_distance, LengthenWay::Equally);
-	Line<2> real_ex_line = Line<2>(line).lengthenBy(virtual_distance, LengthenWay::Equally);
-	bool intersect = 
-		checkIntersectLineWithLine2D(delta, virtual_line) ||
-		checkIntersectLineWithLine2D(delta, Line<2>(virtual_line.b, real_ex_line.b)) ||
-		checkIntersectLineWithLine2D(delta, real_ex_line) ||
-		checkIntersectLineWithLine2D(delta, Line<2>(real_ex_line.a, virtual_line.a));
-	if (intersect) return projectionPointOnEquationLine<2>(delta.b, virtual_line).ok("smoothCollision::projection2: Fatal Error\n");
-	else return {};
-}
-*/
-
-
 struct GameLoopContext;
 struct GameObject;
 
@@ -106,6 +77,19 @@ struct GameObject {
 	void checkCollisions(
 		uft::Array<GameObject *> & array,
 		utils::CoLambda<void, CollisionEventStruct *> auto onCollision);
+		
+	void drawCollisionBox();
+	
+	void standartSmoothCollision(uft::Array<GameObject *> & array) {
+		checkCollisions(
+			array, 
+			[this](CollisionEventStruct * ces) {
+				math::Vector<2> end_point = 
+					projectionPointOnEquationLine<2>(position + delta, ces->collision_line)
+					.ok("projectionPointOnEquationLine::fail");
+				delta = end_point - position - ces->getDirVec() * EPS;
+		});
+	}
 };
 
 namespace drawer {
@@ -185,6 +169,10 @@ struct GlobalStruct {
 	size_t gameLoop(GameLoopContext & context);
 } Global;
 
+void GameObject::drawCollisionBox() {
+	Global.drawRectangle(position, position + collision_size);
+}
+
 void GameObject::checkCollisions(
 	uft::Array<GameObject *> & array,
 	utils::CoLambda<void, CollisionEventStruct *> auto onCollision) {
@@ -192,6 +180,14 @@ void GameObject::checkCollisions(
 	using namespace utils;
 	using namespace math;
 	if (delta.norm() < EPS) return;
+	
+	/*
+	
+	Ошибка в том, что если объекты движуться друг на друга, то
+		точка position оказывается внутри объекта для колижена
+		И так как вектор направлен внутрь объекта, пересечение не будет зафиксировано
+		
+	*/
 	
 	for (size_t i = 0; i < array._length; i++) {
 		GameObject * obj = array[i];
@@ -201,6 +197,11 @@ void GameObject::checkCollisions(
 			obj->position + obj->delta - collision_size,
 			obj->position + obj->collision_size + obj->delta
 		);
+		//Если точка внутри кодира объекта, то это значит, что объект на этом ходу собирается
+		//Передвинутьс туда, где стоим мы
+		//Возможно, сработает идея, что в этом случае надо брать c не смещённое на obj->delta;
+		
+		if (checkPointInCodir(position, c)) c -= obj->delta;
 		
 		//Global.drawRectangle(c.left_up, c.right_down, sf::Color::Green);
 		
@@ -215,11 +216,11 @@ void GameObject::checkCollisions(
 			Line<2>({c.left_up[0], c.right_down[1]}, c.right_down),
 			Line<2>(c.left_up, {c.left_up[0], c.right_down[1]})
 		};
-		/*
+		
 		for (size_t i = 0; i < 4; i++) {
-			Global.drawLine(lines[i].a, lines[i].b, sf::Color::Green);
+			//Global.drawLine(lines[i].a, lines[i].b, sf::Color::Green);
 		}
-		*/
+		
 		
 		Ok<Vector<2>> oks[4] = {
 			intersectLineWithLine2D(delta_line, lines[0]),
@@ -357,7 +358,7 @@ struct Bullet : public Projectile {
 		position += delta;
 	}
 	virtual void draw() {
-		Global.drawRectangle(position, position + collision_size);
+		drawCollisionBox();
 	}
 	virtual void collisionAction(GameObject * go) {
 		go->speed += speed / 3;
@@ -374,24 +375,18 @@ struct RandomObject : public GameObject {
 		collision_size = {30, 30};
 	}
 	virtual void updateBase() {
+		speed += {-1.0/9, 0};
 		speed *= 0.9;
 	}
 	virtual void updateVectors() {
-		delta = speed = {1, 0};
-		checkCollisions(
-			Global.game_objects, 
-			[this](CollisionEventStruct * ces) {
-				math::Vector<2> end_point = 
-					projectionPointOnEquationLine<2>(position + delta, ces->collision_line)
-					.ok("projectionPointOnEquationLine::fail");
-				delta = end_point - position - ces->getDirVec() * EPS;
-		});
+		delta = speed;
+		standartSmoothCollision(Global.game_objects);
 	}
 	virtual void updateMove() {
 		position += delta;
 	}
 	virtual void draw() {
-		Global.drawRectangle(position, position + collision_size);
+		drawCollisionBox();
 	}
 };
 
@@ -456,14 +451,7 @@ struct Player : public GameObject {
 	
 	void updateVectors() {
 		delta = speed;
-		checkCollisions(
-			Global.game_objects, 
-			[this](CollisionEventStruct * ces) {
-				math::Vector<2> end_point = 
-					projectionPointOnEquationLine<2>(position + delta, ces->collision_line)
-					.ok("projectionPointOnEquationLine::fail");
-				delta = end_point - position - ces->getDirVec() * EPS;
-		});
+		standartSmoothCollision(Global.game_objects);
 	}
 	
 	void updateMove() {
@@ -471,7 +459,7 @@ struct Player : public GameObject {
 	}
 	
 	void draw() {
-		Global.drawRectangle(position, position + collision_size);
+		drawCollisionBox();
 	}
 };
 
@@ -536,7 +524,7 @@ int main() {
 	Player player;
 	GameLoopContext context;;
 	context.local_player = &player;
-	RandomObject ro({250, 250});
+	RandomObject ro({250, 100});
 	Global.game_objects.addCopy(&ro);
 	Global.game_objects.addCopy(context.local_player);
 	size_t game_status = Global.gameLoop(context);
